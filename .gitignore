@@ -9,6 +9,10 @@ build/
 out/
 *.js.map
 
+# compiled standalone binary (platform-specific, built via `bun run build:binary`)
+bin/harness
+bin/harness.exe
+
 # bun.lock is intentionally NOT ignored — commit it like package-lock.json
 
 # harness runtime state

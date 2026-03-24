@@ -17,15 +17,18 @@
     "automation"
   ],
   "bin": {
-    "harness": "./src/cli.ts"
+    "harness": "./bin/harness.ts"
   },
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts"
   },
   "files": [
+    "bin/",
     "src/",
     "examples/",
+    "install.sh",
+    "setup.sh",
     "README.md",
     "LICENSE",
     "tsconfig.json"
@@ -33,6 +36,7 @@
   "scripts": {
     "dev": "bun run src/cli.ts",
     "build": "bun build src/cli.ts --outdir dist --target bun --sourcemap=external",
+    "build:binary": "bun build src/cli.ts --compile --outfile dist/harness",
     "build:check": "tsc --noEmit",
     "start": "bun run dist/cli.js",
     "link": "bun link",

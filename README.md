@@ -4,71 +4,97 @@
 
 Inspired by the hierarchical planner/worker architecture from [Cursor's self-driving codebases](https://cursor.com/blog/self-driving-codebases).
 
-## Architecture
+## Install
 
-```
-┌──────────────────────────────────────┐
-│           Harness CLI                │
-│                                      │
-│  ┌─────────┐    ┌────────────────┐   │
-│  │ Planner │───▶│  .harness/     │   │
-│  └────┬────┘    │  ├─ agents/    │   │
-│       │         │  ├─ tasks/     │   │
-│  ┌────┴────┐    │  ├─ messages/  │   │
-│  │         │    │  │   ├─ inbox/ │   │
-│  ▼         ▼    │  │   └─ broadcast/ │
-│ Worker   Worker │  ├─ plans/     │   │
-│ Claude   Codex  │  └─ session.json   │
-│                 └────────────────┘   │
-└──────────────────────────────────────┘
-```
-
-**Key design principles:**
-- **Hierarchical coordination** — A single planner owns task decomposition and assignment. Workers don't coordinate with each other.
-- **File-based messaging** — Agents communicate via a shared `.harness/` directory. Simple, debuggable, no server needed.
-- **Auto-discovery** — Harness detects running Claude Code, Cursor, and Codex sessions automatically.
-- **Provider-agnostic** — Workers abstract over different CLI agents with a common interface.
-
-## Quick Start
+One command:
 
 ```bash
-# Install dependencies
-cd harness && bun install
-
-# Initialize in your project
-bun run src/cli.ts init
-
-# Discover available agents
-bun run src/cli.ts discover
-
-# Run the demo
-bun run src/cli.ts demo
-
-# Quick single-task run
-bun run src/cli.ts run "add error handling to src/api.ts"
-
-# Execute a multi-task plan
-bun run src/cli.ts plan "Refactor Auth" --file examples/plan-refactor-auth.json
+curl -fsSL https://raw.githubusercontent.com/mellofordev/harness/main/install.sh | bash
 ```
+
+This installs Bun (if needed), clones the repo, compiles a standalone binary, and drops `harness` into your PATH. Run `harness-uninstall` to remove it.
+
+### Other install methods
+
+**Clone and run the setup script:**
+
+```bash
+git clone https://github.com/mellofordev/harness && cd harness
+./setup.sh
+```
+
+**Manual (if you already have Bun):**
+
+```bash
+git clone https://github.com/mellofordev/harness && cd harness
+bun install && bun link
+```
+
+**Compile a standalone binary (no Bun needed at runtime):**
+
+```bash
+bun run build:binary          # outputs dist/harness
+sudo cp dist/harness /usr/local/bin/harness
+```
+
+---
+
+## Quick start
+
+```bash
+cd your-project/
+harness init              # creates .harness/ and config
+harness discover          # check which AI CLIs are available
+harness demo --dry-run    # safe walkthrough with no real API calls
+```
+
+### Run a single task
+
+```bash
+harness run "add error handling to src/api.ts"
+harness run "write tests for auth.ts" --with codex
+harness run "refactor the config module" --dry-run   # simulate only
+```
+
+### Run a multi-agent plan
+
+```bash
+# Terminal 1 — start the planner
+harness plan "Refactor Auth" --file examples/plan-refactor-auth.json
+
+# Terminal 2 — spawn a worker
+harness spawn claude-code
+
+# Terminal 3 — watch live activity
+harness watch
+```
+
+---
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `init` | Initialize `.harness/` directory |
-| `discover` | Scan for running AI agent sessions |
-| `status` | Show session, agents, and plan status |
+| `init` | Initialize `.harness/` and write config |
+| `discover` | Scan for running AI CLI sessions |
+| `status` | Show agents, tasks, and plan status |
 | `agents` | List all registered agents |
-| `spawn <provider>` | Spawn a worker agent |
+| `spawn <provider>` | Start a worker in this terminal |
 | `plan <title> --file <json>` | Execute a multi-task plan |
 | `run <prompt>` | Quick single-task execution |
 | `send <agentId> <msg>` | Send a message to an agent |
-| `demo` | Run built-in demo scenario |
+| `watch` | Stream live `.harness/` activity |
+| `logs` | Show recent message history |
+| `demo` | Run the built-in demo (safe, dry-run) |
 | `clean` | Remove stale agents and messages |
 
-## Plan Files
+All commands accept `--dry-run` to simulate without calling any AI CLI.
 
-Plans are JSON files that define tasks with dependencies:
+---
+
+## Plan files
+
+Plans are JSON files that describe tasks with dependencies:
 
 ```json
 {
@@ -82,8 +108,8 @@ Plans are JSON files that define tasks with dependencies:
       "files": ["src/main.ts"]
     },
     {
-      "title": "Second task (depends on first)",
-      "description": "Runs after first task completes",
+      "title": "Second task — runs after first completes",
+      "description": "...",
       "dependsOnIndex": [0],
       "files": ["tests/main.test.ts"]
     }
@@ -91,27 +117,62 @@ Plans are JSON files that define tasks with dependencies:
 }
 ```
 
-## Supported Providers
+See [`examples/`](./examples) for ready-to-use plans.
 
-| Provider | CLI Command | Status |
-|----------|-------------|--------|
+---
+
+## Supported providers
+
+| Provider | CLI | Status |
+|----------|-----|--------|
 | Claude Code | `claude` | ✅ Full support |
-| Cursor | `cursor` | 🔧 Background agent (stub) |
+| Cursor | — | ✅ Workspace-inject strategy |
 | OpenAI Codex | `codex` | ✅ Full support |
 | Gemini CLI | `gemini` | 🔧 Planned |
+
+---
+
+## Architecture
+
+```
+┌──────────────────────────────────────┐
+│           Harness CLI                │
+│                                      │
+│  ┌─────────┐    ┌────────────────┐   │
+│  │ Planner │───▶│  .harness/     │   │
+│  └────┬────┘    │  ├─ agents/    │   │
+│       │         │  ├─ tasks/     │   │
+│  ┌────┴────┐    │  ├─ messages/  │   │
+│  │         │    │  ├─ plans/     │   │
+│  ▼         ▼    │  └─ session.json   │
+│ Worker   Worker └────────────────┘   │
+│ Claude   Codex                       │
+└──────────────────────────────────────┘
+```
+
+**Key principles:**
+- **Hierarchical coordination** — a single planner owns task decomposition and assignment; workers don't coordinate with each other
+- **File-based messaging** — all inter-agent communication goes through `.harness/`; simple, debuggable, no server needed
+- **Provider-agnostic workers** — provider logic lives in `src/agents/<provider>.ts`; adding a new one requires no changes to the planner or worker
+
+---
 
 ## Development
 
 ```bash
-# Run in dev mode
-bun run dev
-
-# Build for distribution
-bun run build
-
-# Link globally
-bun link
+bun install
+bun run dev              # run CLI directly (no install needed)
+bun run build:check      # TypeScript type-check
+bun run build            # compile to dist/ (Bun-targeted JS)
+bun run build:binary     # compile to dist/harness standalone binary
+bun link                 # register `harness` globally for local dev
 ```
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
