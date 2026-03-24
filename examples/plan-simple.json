@@ -1,0 +1,19 @@
+{
+  "description": "A simple two-task plan to demonstrate basic orchestration.",
+  "workers": ["claude-code"],
+  "tasks": [
+    {
+      "title": "List project files",
+      "description": "List all TypeScript files in the project and provide a brief summary of each.",
+      "priority": "normal",
+      "files": ["src/**/*.ts"]
+    },
+    {
+      "title": "Summarize findings",
+      "description": "Based on the file listing, write a brief project overview.",
+      "priority": "low",
+      "dependsOnIndex": [0],
+      "files": ["PROJECT_SUMMARY.md"]
+    }
+  ]
+}

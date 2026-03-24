@@ -1,0 +1,49 @@
+{
+  "name": "harness-cli",
+  "version": "0.1.0-alpha.1",
+  "description": "Multi-agent AI orchestrator for Claude Code, Cursor, Codex, and Gemini CLI",
+  "author": "sreedhar",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "ai",
+    "agents",
+    "orchestration",
+    "claude-code",
+    "cursor",
+    "codex",
+    "cli",
+    "multi-agent",
+    "automation"
+  ],
+  "bin": {
+    "harness": "./src/cli.ts"
+  },
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src/",
+    "examples/",
+    "README.md",
+    "LICENSE",
+    "tsconfig.json"
+  ],
+  "scripts": {
+    "dev": "bun run src/cli.ts",
+    "build": "bun build src/cli.ts --outdir dist --target bun --sourcemap=external",
+    "build:check": "tsc --noEmit",
+    "start": "bun run dist/cli.js",
+    "link": "bun link",
+    "clean": "rm -rf dist coverage"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  }
+}

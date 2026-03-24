@@ -1,0 +1,40 @@
+{
+  "description": "Refactor the authentication module to use JWT tokens with refresh flow, add tests, and update docs.",
+  "workers": ["claude-code", "codex"],
+  "tasks": [
+    {
+      "title": "Audit current auth implementation",
+      "description": "Read through the existing authentication code. Identify all auth-related files, the current flow (session-based, token-based, etc.), and any security issues. Output a summary.",
+      "priority": "high",
+      "files": ["src/auth/**", "src/middleware/auth.ts"]
+    },
+    {
+      "title": "Implement JWT token generation",
+      "description": "Create a JWT utility module that can generate access tokens (15min TTL) and refresh tokens (7day TTL). Use the audit findings to ensure backward compatibility.",
+      "priority": "high",
+      "dependsOnIndex": [0],
+      "files": ["src/auth/jwt.ts", "src/auth/tokens.ts"]
+    },
+    {
+      "title": "Add refresh token endpoint",
+      "description": "Create a POST /auth/refresh endpoint that validates a refresh token and issues a new access token. Include rate limiting.",
+      "priority": "normal",
+      "dependsOnIndex": [1],
+      "files": ["src/routes/auth.ts", "src/middleware/rate-limit.ts"]
+    },
+    {
+      "title": "Write unit tests for JWT module",
+      "description": "Write comprehensive tests for token generation, validation, expiry, and refresh flow. Cover edge cases like expired tokens, malformed tokens, and replay attacks.",
+      "priority": "normal",
+      "dependsOnIndex": [1],
+      "files": ["tests/auth/jwt.test.ts", "tests/auth/refresh.test.ts"]
+    },
+    {
+      "title": "Update API documentation",
+      "description": "Update the API docs to reflect the new JWT-based auth flow. Include examples for token acquisition, refresh, and error responses.",
+      "priority": "low",
+      "dependsOnIndex": [2, 3],
+      "files": ["docs/api/auth.md"]
+    }
+  ]
+}
