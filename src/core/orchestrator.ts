@@ -15,6 +15,7 @@ import type { AgentInfo, AgentProvider, HarnessConfig, HarnessSession } from "./
 import { FileBus } from "../transport/file-bus";
 import { Planner, type TaskDefinition } from "../planner/planner";
 import { Worker } from "../planner/worker";
+import { ScratchpadManager } from "../scratchpad";
 import { discoverAgents, checkCliAvailability } from "../discovery/detector";
 import { sessionId, agentId } from "../utils/id";
 import { logger } from "../utils/logger";
@@ -22,6 +23,7 @@ import { logger } from "../utils/logger";
 export class Orchestrator {
   private config: HarnessConfig;
   private bus: FileBus;
+  private scratchpad: ScratchpadManager | null = null;
   private planner: Planner | null = null;
   private plannerId: string | null = null;
   private workers: Map<string, Worker> = new Map();
@@ -39,6 +41,11 @@ export class Orchestrator {
     if (!silent) logger.banner("Harness CLI — Multi-Agent Orchestrator");
 
     this.bus.initialize();
+
+    // Initialize scratchpad system for lightweight inter-agent context sharing
+    const harnessPath = join(resolve(this.config.workDir), this.config.harnessDir);
+    this.scratchpad = new ScratchpadManager(harnessPath);
+    this.scratchpad.initialize();
 
     this.session = {
       id: sessionId(),
@@ -139,7 +146,7 @@ export class Orchestrator {
     this.planner = new Planner(this.bus, id, {
       maxConcurrentWorkers: this.config.maxConcurrentWorkers,
       taskTimeoutMs: this.config.taskTimeoutMs,
-    });
+    }, this.scratchpad ?? undefined);
 
     // Start polling for incoming messages to the planner
     this.bus.startPolling(id, (messages) => {
@@ -163,6 +170,7 @@ export class Orchestrator {
       provider,
       workDir: workDir || this.config.workDir,
       adapterOptions,
+      scratchpad: this.scratchpad ?? undefined,
     });
 
     worker.start();

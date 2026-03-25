@@ -150,11 +150,15 @@ export class CodexAdapter extends BaseAgentAdapter {
       lines.push("", `Focus on these files: ${task.files.join(", ")}`);
     }
 
-    const depEntries = Object.entries(context.dependencyResults);
-    if (depEntries.length > 0) {
-      lines.push("", "Note: The following work has already been completed:");
-      for (const [, result] of depEntries) {
-        lines.push(`  - ${result.summary}`);
+    if (context.scratchpadContext) {
+      lines.push("", "Note: Context from prior work:", context.scratchpadContext);
+    } else {
+      const depEntries = Object.entries(context.dependencyResults);
+      if (depEntries.length > 0) {
+        lines.push("", "Note: The following work has already been completed:");
+        for (const [, result] of depEntries) {
+          lines.push(`  - ${result.summary}`);
+        }
       }
     }
 

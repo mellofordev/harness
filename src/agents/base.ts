@@ -59,6 +59,12 @@ export interface TaskContext {
 
   /** Any handoff context from a previous agent */
   handoffContext?: Record<string, unknown>;
+
+  /** Pre-built context string from scratchpad files (replaces dependencyResults when available) */
+  scratchpadContext?: string;
+
+  /** Path to this agent's scratchpad file */
+  scratchpadPath?: string;
 }
 
 // ─── Execution Options (shared across adapters) ─────────────────
@@ -116,15 +122,21 @@ export abstract class BaseAgentAdapter implements AgentAdapter {
       }
     }
 
-    // Context from dependency tasks
-    const depEntries = Object.entries(context.dependencyResults);
-    if (depEntries.length > 0) {
+    // Context from prior work — prefer scratchpad if available
+    if (context.scratchpadContext) {
       lines.push("");
-      lines.push("## Context from completed tasks:");
-      for (const [, result] of depEntries) {
-        lines.push(`  - ${result.summary}`);
-        if (result.filesChanged.length > 0) {
-          lines.push(`    Changed: ${result.filesChanged.join(", ")}`);
+      lines.push("## Context from prior work:");
+      lines.push(context.scratchpadContext);
+    } else {
+      const depEntries = Object.entries(context.dependencyResults);
+      if (depEntries.length > 0) {
+        lines.push("");
+        lines.push("## Context from completed tasks:");
+        for (const [, result] of depEntries) {
+          lines.push(`  - ${result.summary}`);
+          if (result.filesChanged.length > 0) {
+            lines.push(`    Changed: ${result.filesChanged.join(", ")}`);
+          }
         }
       }
     }

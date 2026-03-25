@@ -18,6 +18,8 @@ import type { Task, Plan, AgentInfo, Message, TaskResult, TaskPriority } from ".
 import { FileBus } from "../transport/file-bus";
 import { taskId, planId } from "../utils/id";
 import { logger } from "../utils/logger";
+import type { ScratchpadManager } from "../scratchpad";
+import type { ScratchpadRef } from "../scratchpad";
 
 export interface PlannerOptions {
   maxConcurrentWorkers: number;
@@ -39,11 +41,13 @@ export class Planner {
   private options: PlannerOptions;
   private activePlan: Plan | null = null;
   private retryCount: Map<string, number> = new Map();
+  private scratchpad: ScratchpadManager | null;
 
-  constructor(bus: FileBus, plannerId: string, options?: Partial<PlannerOptions>) {
+  constructor(bus: FileBus, plannerId: string, options?: Partial<PlannerOptions>, scratchpad?: ScratchpadManager) {
     this.bus = bus;
     this.plannerId = plannerId;
     this.options = { ...DEFAULT_OPTIONS, ...options };
+    this.scratchpad = scratchpad ?? null;
   }
 
   // ─── Plan Creation ───────────────────────────────────────────
@@ -231,6 +235,19 @@ export class Planner {
       this.bus.savePlan(this.activePlan);
     }
 
+    // Write completion data to scratchpads
+    if (this.scratchpad) {
+      const taskTitle = this.activePlan?.tasks.find((t) => t.id === tId)?.title || tId;
+      this.scratchpad.appendSection(message.from, "status",
+        `[completed] ${taskTitle}: ${result.summary}`);
+      if (result.filesChanged.length > 0) {
+        this.scratchpad.replaceSection(message.from, "files_changed",
+          result.filesChanged.map((f) => `- ${f}`).join("\n"));
+      }
+      this.scratchpad.updateProjectPad("status",
+        `Task "${taskTitle}" completed by ${message.from}: ${result.summary}`);
+    }
+
     logger.info(`Task completed: ${tId}`, { by: message.from, success: result.success });
 
     // Check if plan is fully completed
@@ -361,7 +378,26 @@ export class Planner {
   }
 
   private gatherTaskContext(task: Task): Record<string, unknown> {
-    // Gather context from completed dependencies
+    // Scratchpad path: send lightweight refs instead of full TaskResult objects
+    if (this.scratchpad) {
+      const scratchpadRefs: ScratchpadRef[] = [];
+      for (const depId of task.dependencies) {
+        const depTask = this.bus.getTask(depId);
+        if (depTask?.assignedTo) {
+          const ref = this.scratchpad.getRef(depTask.assignedTo);
+          if (ref) scratchpadRefs.push(ref);
+        }
+      }
+      return {
+        planTitle: this.activePlan?.title,
+        planDescription: this.activePlan?.description,
+        scratchpadRefs,
+        projectScratchpadPath: this.scratchpad.getProjectPadPath(),
+        totalTasks: this.activePlan?.tasks.length || 0,
+      };
+    }
+
+    // Legacy path: full TaskResult objects
     const depResults: Record<string, TaskResult> = {};
     for (const depId of task.dependencies) {
       const depTask = this.bus.getTask(depId);

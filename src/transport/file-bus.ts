@@ -34,6 +34,7 @@ export class FileBus {
     broadcast: string;
     plans: string;
     locks: string;
+    scratchpads: string;
   };
   private pollInterval: number;
   private watchers: Map<string, Timer> = new Map();
@@ -50,6 +51,7 @@ export class FileBus {
       broadcast: join(this.baseDir, "messages", "broadcast"),
       plans: join(this.baseDir, "plans"),
       locks: join(this.baseDir, "locks"),
+      scratchpads: join(this.baseDir, "scratchpads"),
     };
   }
 
