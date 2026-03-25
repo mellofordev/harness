@@ -9,7 +9,7 @@ Inspired by the hierarchical planner/worker architecture from [Cursor's self-dri
 One command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mellofordev/harness/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/mellofordev/harness/master/install.sh | bash
 ```
 
 This installs Bun (if needed), clones the repo, compiles a standalone binary, and drops `harness` into your PATH. Run `harness-uninstall` to remove it.
