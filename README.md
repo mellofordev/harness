@@ -53,19 +53,21 @@ harness demo --dry-run    # safe walkthrough with no real API calls
 ```bash
 harness run "add error handling to src/api.ts"
 harness run "write tests for auth.ts" --with codex
+harness plan "refactor the config module"
 harness run "refactor the config module" --dry-run   # simulate only
 ```
+
+`harness run` is the execution path: give Harness a prompt, feature request, issue description, or file reference and it will auto-detect local AI CLIs, choose a lead agent, decompose the work, and execute.
+
+`harness plan` is the review-first variant: it takes the same kind of prompt, shows the generated task split, then runs it.
 
 ### Run a multi-agent plan
 
 ```bash
-# Terminal 1 — start the planner
-harness plan "Refactor Auth" --file examples/plan-refactor-auth.json
+# Preview the decomposition before execution
+harness plan "@README.md implement the missing UX described here"
 
-# Terminal 2 — spawn a worker
-harness spawn claude-code
-
-# Terminal 3 — watch live activity
+# Watch live activity in another terminal
 harness watch
 ```
 
@@ -79,45 +81,36 @@ harness watch
 | `discover` | Scan for running AI CLI sessions |
 | `status` | Show agents, tasks, and plan status |
 | `agents` | List all registered agents |
-| `spawn <provider>` | Start a worker in this terminal |
-| `plan <title> --file <json>` | Execute a multi-task plan |
-| `run <prompt>` | Quick single-task execution |
+| `run <prompt>` | Execute a prompt through auto-orchestrated agents |
+| `plan <prompt>` | Preview the generated decomposition, then execute |
 | `send <agentId> <msg>` | Send a message to an agent |
 | `watch` | Stream live `.harness/` activity |
 | `logs` | Show recent message history |
 | `demo` | Run the built-in demo (safe, dry-run) |
 | `clean` | Remove stale agents and messages |
+| `spawn <provider>` | Advanced: manually start a worker |
 
 All commands accept `--dry-run` to simulate without calling any AI CLI.
 
 ---
 
-## Plan files
+## Prompt-First Workflow
 
-Plans are JSON files that describe tasks with dependencies:
+Harness should feel like using Codex or Claude Code, not like writing a workflow spec.
 
-```json
-{
-  "description": "What this plan does",
-  "workers": ["claude-code", "codex"],
-  "tasks": [
-    {
-      "title": "First task",
-      "description": "Detailed instructions",
-      "priority": "high",
-      "files": ["src/main.ts"]
-    },
-    {
-      "title": "Second task — runs after first completes",
-      "description": "...",
-      "dependsOnIndex": [0],
-      "files": ["tests/main.test.ts"]
-    }
-  ]
-}
-```
+You can give it:
+- a short prompt
+- a full feature description
+- a pasted issue
+- a file reference such as `@README.md`
 
-See [`examples/`](./examples) for ready-to-use plans.
+Harness then:
+- detects which coding CLIs are available on the machine
+- selects a lead agent to decompose the work
+- spawns workers automatically
+- schedules the resulting tasks through the internal planner
+
+The planner still exists internally, but users should not have to author plans by hand.
 
 ---
 
@@ -154,6 +147,7 @@ See [`examples/`](./examples) for ready-to-use plans.
 - **Hierarchical coordination** — a single planner owns task decomposition and assignment; workers don't coordinate with each other
 - **File-based messaging** — all inter-agent communication goes through `.harness/`; simple, debuggable, no server needed
 - **Provider-agnostic workers** — provider logic lives in `src/agents/<provider>.ts`; adding a new one requires no changes to the planner or worker
+- **Prompt-first execution** — Harness can take a user prompt, auto-detect local AI CLIs, choose a lead decomposer, and split work across the rest
 
 ---
 

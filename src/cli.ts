@@ -7,8 +7,8 @@
  *   harness discover                      Scan for running AI CLI agents
  *   harness status                        Show current session status
  *   harness spawn <provider>              Spawn a worker agent (long-running)
- *   harness plan <title> --file <plan>    Execute a plan from a JSON file
- *   harness run <prompt>                  Quick single-task execution
+ *   harness plan <prompt>                 Preview the generated orchestration plan
+ *   harness run <prompt>                  Execute a prompt immediately via orchestration
  *   harness agents                        List registered agents
  *   harness send <agentId> <message>      Send a message to an agent
  *   harness watch                         Stream real-time .harness/ activity
@@ -22,10 +22,12 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { Orchestrator } from "./core/orchestrator";
 import { DEFAULT_CONFIG, type AgentProvider, type HarnessConfig } from "./core/types";
 import { loadConfig, writeDefaultConfig, getAdapterConfig } from "./core/config";
+import { autoSpawn } from "./core/auto-spawn";
 import { REGISTRY } from "./agents/index";
 import { startWatch } from "./commands/watch";
 import { logger } from "./utils/logger";
 import type { TaskDefinition } from "./planner/planner";
+import { decomposePrompt } from "./planner/ai-decomposer";
 import type { Message } from "./core/types";
 
 // ─── Argument Parsing ──────────────────────────────────────────
@@ -41,6 +43,22 @@ function getFlag(flag: string): string | undefined {
 
 function hasFlag(flag: string): boolean {
   return args.includes(flag);
+}
+
+function getPositionals(excludedFlags: string[] = []): string[] {
+  const flagsWithValues = new Set(excludedFlags);
+  const positionals: string[] = [];
+
+  for (let i = 0; i < subArgs.length; i++) {
+    const arg = subArgs[i];
+    if (arg.startsWith("--")) {
+      if (flagsWithValues.has(arg)) i++;
+      continue;
+    }
+    positionals.push(arg);
+  }
+
+  return positionals;
 }
 
 const isDryRun = hasFlag("--dry-run");
@@ -325,94 +343,22 @@ async function cmdSend() {
 }
 
 async function cmdPlan() {
-  // harness plan "title" --file plan.json [--dry-run]
-  const titleArg = subArgs.find((a) => !a.startsWith("--"));
-  const planFile = getFlag("--file");
-
-  if (!titleArg || !planFile) {
+  const prompt = getPositionals(["--with", "--timeout", "--dir"]).join(" ");
+  if (!prompt) {
     console.error(
-      "Usage: harness plan <title> --file <plan.json> [--dry-run]\n\n" +
-        "Example plan files are in examples/ directory."
+      "Usage: harness plan <prompt> [--with <provider>] [--dry-run]\n\n" +
+        "Examples:\n" +
+        '  harness plan "implement OAuth login flow"\n' +
+        '  harness plan "fix auth race condition in src/auth.ts"\n' +
+        '  harness plan "@README.md implement the UX described here"'
     );
     process.exit(1);
   }
-
-  if (!existsSync(planFile)) {
-    console.error(`Plan file not found: ${planFile}`);
-    process.exit(1);
-  }
-
-  const planData = JSON.parse(readFileSync(planFile, "utf-8")) as {
-    description: string;
-    tasks: TaskDefinition[];
-    workers?: AgentProvider[];
-  };
-
-  const config = resolveConfig();
-  const adapterConfig = getAdapterConfig(config.workDir);
-  const orchestrator = new Orchestrator(config);
-  await orchestrator.init();
-
-  // Spawn workers with dry-run awareness
-  if (planData.workers && planData.workers.length > 0) {
-    for (const provider of planData.workers) {
-      const adapterOptions: Record<string, unknown> = {
-        ...(adapterConfig[provider as keyof typeof adapterConfig] || {}),
-        dryRun: isDryRun,
-      };
-      orchestrator.spawnWorker(provider, config.workDir, adapterOptions);
-    }
-  } else {
-    logger.warn("No workers defined in plan file — add a 'workers' array.");
-  }
-
-  await orchestrator.executePlan(titleArg, planData.description, planData.tasks);
-
-  if (isDryRun) {
-    console.log(`\n${C.yellow}[DRY RUN] Plan executing in simulation mode${C.reset}\n`);
-  }
-
-  console.log(
-    `\n${C.cyan}Plan is running.${C.reset} In another terminal:\n` +
-      `  ${C.dim}harness watch${C.reset}   ← live activity stream\n` +
-      `  ${C.dim}harness status${C.reset}  ← snapshot view\n\n` +
-      "Press Ctrl+C to stop.\n"
-  );
-
-  process.on("SIGINT", async () => {
-    await orchestrator.shutdown();
-    process.exit(0);
-  });
-
-  // Wait for plan to finish or Ctrl+C
-  await new Promise<void>((resolve) => {
-    const check = setInterval(() => {
-      const planner = orchestrator.getPlanner();
-      if (!planner) return;
-      const status = planner.getStatus();
-      if (status.status === "completed" || planner.isPlanFailed()) {
-        clearInterval(check);
-        resolve();
-      }
-    }, 2000);
-  });
-
-  const finalStatus = orchestrator.getPlanner()?.getStatus();
-  if (finalStatus) {
-    const success = finalStatus.tasks.failed === 0;
-    console.log(
-      `\n${success ? C.green : C.red}Plan finished: ${finalStatus.tasks.completed}/${finalStatus.tasks.total} tasks completed` +
-        (finalStatus.tasks.failed > 0 ? `, ${finalStatus.tasks.failed} failed` : "") +
-        C.reset + "\n"
-    );
-  }
-
-  await orchestrator.shutdown();
+  await runPromptFlow(prompt, "plan");
 }
 
 async function cmdRun() {
-  // harness run "prompt" [--with <provider>] [--dry-run]
-  const promptParts = subArgs.filter((a) => !a.startsWith("--") && a !== getFlag("--with"));
+  const promptParts = getPositionals(["--with", "--timeout", "--dir"]);
   const prompt = promptParts.join(" ");
 
   if (!prompt) {
@@ -426,45 +372,103 @@ async function cmdRun() {
     process.exit(1);
   }
 
-  const provider = (getFlag("--with") || "claude-code") as AgentProvider;
+  await runPromptFlow(prompt, "normal");
+}
+
+async function runPromptFlow(prompt: string, mode: "normal" | "plan") {
   const config = resolveConfig();
-  const adapterConfig = getAdapterConfig(config.workDir);
-  const adapterOptions: Record<string, unknown> = {
-    ...(adapterConfig[provider as keyof typeof adapterConfig] || {}),
-    dryRun: isDryRun,
-  };
-
-  // Warn if CLI not available
-  if (!isDryRun) {
-    const available = await REGISTRY.create(provider)?.isAvailable();
-    if (!available) {
-      console.warn(
-        `\n${C.yellow}⚠ '${provider}' CLI not found. Use --dry-run to simulate.${C.reset}\n`
-      );
-    }
-  }
-
   const orchestrator = new Orchestrator(config);
   await orchestrator.init(true);
+  const requestedProvider = getFlag("--with") as AgentProvider | undefined;
+  let title = "Quick Run";
+  let description = prompt;
+  let tasks: TaskDefinition[] = [];
+  let workerProviders: AgentProvider[] = [];
+  let leadProvider: AgentProvider | null = null;
 
-  orchestrator.spawnWorker(provider, config.workDir, adapterOptions);
+  try {
+    if (requestedProvider) {
+      const adapterConfig = getAdapterConfig(config.workDir);
+      const adapterOptions: Record<string, unknown> = {
+        ...(adapterConfig[requestedProvider as keyof typeof adapterConfig] || {}),
+        dryRun: isDryRun,
+      };
 
-  const tasks: TaskDefinition[] = [
-    {
-      title: prompt.slice(0, 80),
-      description: prompt,
-      priority: "normal",
-    },
-  ];
+      if (!isDryRun) {
+        const available = await REGISTRY.create(requestedProvider)?.isAvailable();
+        if (!available) {
+          console.warn(
+            `\n${C.yellow}⚠ '${requestedProvider}' CLI not found. Use --dry-run to simulate.${C.reset}\n`
+          );
+        }
+      }
 
-  console.log(
-    `\n${C.cyan}Running task with ${provider}${isDryRun ? ` ${C.yellow}[DRY RUN]${C.reset}` : ""}${C.reset}\n` +
-      `  "${prompt.slice(0, 70)}"\n`
-  );
+      orchestrator.spawnWorker(requestedProvider, config.workDir, adapterOptions);
+      workerProviders = [requestedProvider];
+      leadProvider = requestedProvider;
+    } else {
+      const auto = await autoSpawn(orchestrator, config, { dryRun: isDryRun });
+      workerProviders = auto.spawned;
+      leadProvider = auto.lead;
+    }
 
-  await orchestrator.executePlan("Quick Run", prompt, tasks);
+    if (!leadProvider) {
+      throw new Error("No lead provider available for decomposition");
+    }
 
-  // Wait for completion
+    const decomposed = await decomposePrompt(prompt, {
+      provider: leadProvider,
+      workDir: config.workDir,
+      mode,
+      model: config.decomposerModel,
+      dryRun: isDryRun,
+    });
+
+    title = decomposed.title;
+    description = decomposed.description;
+    tasks = decomposed.tasks;
+
+    if (tasks.length === 0) {
+      tasks = [
+        {
+          title: prompt.slice(0, 80),
+          description: prompt,
+          priority: "normal",
+        },
+      ];
+    }
+
+    console.log(
+      `\n${C.cyan}${mode === "plan" ? "Planning" : "Running"} with Harness${C.reset}` +
+        `${isDryRun ? ` ${C.yellow}[DRY RUN]${C.reset}` : ""}\n` +
+        `  Prompt:   "${prompt.slice(0, 90)}"\n` +
+        `  Lead:     ${leadProvider}\n` +
+        `  Workers:  ${workerProviders.join(", ")}\n` +
+        `  Tasks:    ${tasks.length}\n`
+    );
+
+    if (mode === "plan") {
+      console.log(`${C.bold}Plan${C.reset}`);
+      console.log(`  Title: ${title}`);
+      console.log(`  Summary: ${description}`);
+      for (const [index, task] of tasks.entries()) {
+        const deps = task.dependsOnIndex?.map((n) => n + 1).join(", ");
+        const files = task.files?.length ? task.files.join(", ") : "(project context)";
+        console.log(
+          `  ${index + 1}. ${task.title} ${C.dim}[${task.priority || "normal"}]${C.reset}`
+        );
+        console.log(`     Files: ${files}`);
+        if (deps) console.log(`     Depends on: ${deps}`);
+      }
+      console.log();
+    }
+
+    await orchestrator.executePlan(title, description, tasks);
+  } catch (err) {
+    await orchestrator.shutdown();
+    throw err;
+  }
+
   const timeoutMs = parseInt(getFlag("--timeout") || "120000");
   const start = Date.now();
 
@@ -485,17 +489,21 @@ async function cmdRun() {
 
   const finalStatus = orchestrator.getPlanner()?.getStatus();
   const tasks_ = readJsonDir(join(resolveHarnessDir(config), "tasks")) as any[];
-  const task = tasks_[0];
+  const completedTasks = tasks_.filter((task: any) => task?.result);
 
-  if (task?.result) {
-    console.log(`\n${C.bold}Result:${C.reset}`);
-    console.log(`  Status:  ${colorStatus(task.result.success ? "completed" : "failed")}`);
-    console.log(`  Summary: ${task.result.summary}`);
-    if (task.result.filesChanged?.length > 0) {
-      console.log(`  Files:   ${task.result.filesChanged.join(", ")}`);
-    }
-    if (task.result.output) {
-      console.log(`\n  Output:\n${C.gray}${task.result.output.slice(0, 1000)}${C.reset}`);
+  if (completedTasks.length > 0) {
+    console.log(`\n${C.bold}Results:${C.reset}`);
+    for (const task of completedTasks) {
+      console.log(
+        `  ${colorStatus(task.result.success ? "completed" : "failed")} ${task.title}`
+      );
+      console.log(`    Summary: ${task.result.summary}`);
+      if (task.result.filesChanged?.length > 0) {
+        console.log(`    Files:   ${task.result.filesChanged.join(", ")}`);
+      }
+      if (task.result.output && completedTasks.length === 1) {
+        console.log(`\n  Output:\n${C.gray}${task.result.output.slice(0, 1000)}${C.reset}`);
+      }
     }
   }
 
@@ -690,7 +698,7 @@ async function cmdDemo() {
   );
   console.log(
     `  To run a real plan:\n` +
-      `  ${C.cyan}harness plan "My plan" --file examples/plan-refactor-auth.json${C.reset}\n`
+      `  ${C.cyan}harness plan "My plan" --file examples/plan-refactor-auth.md${C.reset}\n`
   );
 
   await orchestrator.shutdown();
@@ -729,19 +737,20 @@ ${C.cyan}Commands:${C.reset}
   discover                       Scan for running AI CLI sessions
   status                         Show agents, tasks, and plan status
   agents                         List all registered agents
-  spawn <provider>               Start a worker in this terminal
-  plan <title> --file <json>     Execute a multi-task plan
-  run <prompt>                   Quick single-task execution
+  run <prompt>                   Execute a prompt via auto-orchestrated agents
+  plan <prompt>                  Preview the generated orchestration plan, then execute
   send <agentId> <message>       Send a message to an agent
   watch                          Stream live .harness/ activity
   logs [--tail N]                Show recent message history
   demo                           Run the built-in demo (safe, dry-run)
   clean                          Remove stale agents and old messages
 
+${C.cyan}Advanced:${C.reset}
+  spawn <provider>               Start a worker in this terminal
+
 ${C.cyan}Options:${C.reset}
   --dir <path>                   Working directory (default: cwd)
-  --with <provider>              Provider for 'run' (default: claude-code)
-  --file <path>                  Plan JSON file for 'plan'
+  --with <provider>              Force a single provider for 'run' instead of auto-detect
   --tail <n>                     Lines for 'logs' (default: 50)
   --interval <ms>                Refresh rate for 'watch' (default: 1000)
   --timeout <ms>                 Timeout for 'run' (default: 120000)
@@ -755,9 +764,9 @@ ${C.cyan}Providers:${C.reset}
   gemini-cli     Google Gemini CLI (gemini)  [coming soon]
 
 ${C.cyan}Typical workflow:${C.reset}
-  Terminal 1:  ${C.dim}harness plan "Refactor auth" --file plan.json${C.reset}
-  Terminal 2:  ${C.dim}harness spawn claude-code${C.reset}
-  Terminal 3:  ${C.dim}harness watch${C.reset}
+  ${C.dim}harness run "implement OAuth login flow"${C.reset}
+  ${C.dim}harness plan "@README.md build the missing UX described here"${C.reset}
+  ${C.dim}harness watch${C.reset}
 
 ${C.cyan}Architecture:${C.reset}
   ┌─────────┐     .harness/          ┌──────────┐

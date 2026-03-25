@@ -23,6 +23,10 @@ export interface PersistedConfig {
   heartbeatIntervalMs?: number;
   taskTimeoutMs?: number;
   maxConcurrentWorkers?: number;
+  autoSpawn?: boolean;
+  autoCommit?: boolean;
+  leadProvider?: string;
+  decomposerModel?: string;
   defaultProvider?: string;
   providers?: Partial<HarnessConfig["providers"]>;
   // Adapter-specific tuning
