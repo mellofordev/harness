@@ -19,17 +19,20 @@ import { getAdapter } from "../agents/index";
 import type { AgentAdapter, TaskContext } from "../agents/index";
 import { agentId } from "../utils/id";
 import { logger } from "../utils/logger";
+import type { ScratchpadManager, ScratchpadRef } from "../scratchpad";
 
 export interface WorkerOptions {
   provider: AgentProvider;
   workDir?: string;
   adapterOptions?: Record<string, unknown>;
+  scratchpad?: ScratchpadManager;
 }
 
 export class Worker {
   private bus: FileBus;
   private agent: AgentInfo;
   private adapter: AgentAdapter;
+  private scratchpad: ScratchpadManager | null;
   private currentTask: Task | null = null;
   private running: boolean = false;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -37,6 +40,7 @@ export class Worker {
   constructor(bus: FileBus, options: WorkerOptions) {
     this.bus = bus;
     this.adapter = getAdapter(options.provider, options.adapterOptions);
+    this.scratchpad = options.scratchpad ?? null;
 
     this.agent = {
       id: agentId(options.provider),
@@ -154,6 +158,13 @@ export class Worker {
     this.currentTask = task;
     this.bus.updateAgentStatus(this.agent.id, "busy");
 
+    // Initialize agent scratchpad and record task start
+    if (this.scratchpad) {
+      this.scratchpad.initAgent(this.agent.id);
+      this.scratchpad.appendSection(this.agent.id, "status",
+        `[in_progress] Starting: ${task.title}`, task.id);
+    }
+
     // Notify planner we've started
     this.bus.send({
       type: "task_update",
@@ -165,8 +176,7 @@ export class Worker {
     try {
       const taskContext: TaskContext = {
         workDir: (this.agent.metadata.workDir as string) || process.cwd(),
-        dependencyResults:
-          (planContext.dependencyResults as Record<string, TaskResult>) || {},
+        dependencyResults: {},
         planTitle: planContext.planTitle as string | undefined,
         planDescription: planContext.planDescription as string | undefined,
         handoffContext: this.agent.metadata.handoffContext as
@@ -174,8 +184,30 @@ export class Worker {
           | undefined,
       };
 
+      // Scratchpad path: read context on-demand from scratchpad files
+      if (planContext.scratchpadRefs && this.scratchpad) {
+        taskContext.scratchpadContext = this.scratchpad.buildPromptContext(
+          planContext.scratchpadRefs as ScratchpadRef[]
+        );
+        taskContext.scratchpadPath = this.scratchpad.getRef(this.agent.id)?.scratchpadPath;
+      } else if (planContext.dependencyResults) {
+        // Legacy path: inline TaskResult objects
+        taskContext.dependencyResults =
+          (planContext.dependencyResults as Record<string, TaskResult>) || {};
+      }
+
       // All provider-specific logic is in the adapter — worker stays generic
       const result = await this.adapter.execute(task, taskContext);
+
+      // Update agent scratchpad with completion data
+      if (this.scratchpad) {
+        this.scratchpad.appendSection(this.agent.id, "status",
+          `[completed] ${task.title}: ${result.summary}`, task.id);
+        if (result.filesChanged.length > 0) {
+          this.scratchpad.replaceSection(this.agent.id, "files_changed",
+            result.filesChanged.map((f) => `- ${f}`).join("\n"));
+        }
+      }
 
       this.bus.send({
         type: "task_complete",
@@ -191,6 +223,13 @@ export class Worker {
       });
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
+
+      // Record failure in scratchpad
+      if (this.scratchpad) {
+        this.scratchpad.appendSection(this.agent.id, "blockers",
+          `Task "${task.title}" failed: ${error}`, task.id);
+      }
+
       this.bus.send({
         type: "task_failed",
         from: this.agent.id,

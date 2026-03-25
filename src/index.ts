@@ -27,6 +27,11 @@ export { DEFAULT_CONFIG } from "./core/types";
 // Transport
 export { FileBus } from "./transport/file-bus";
 
+// Scratchpad
+export { ScratchpadManager } from "./scratchpad";
+export type { ScratchpadSection, ScratchpadRef } from "./scratchpad";
+export { SCRATCHPAD_SECTIONS, SECTION_HEADINGS, PROJECT_PAD_ID } from "./scratchpad";
+
 // Planner
 export { Planner } from "./planner/planner";
 export type { TaskDefinition, PlannerOptions, PlanStatus } from "./planner/planner";

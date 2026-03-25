@@ -278,11 +278,15 @@ export class CursorAdapter extends BaseAgentAdapter {
       lines.push("", `**Files:** ${task.files.join(", ")}`);
     }
 
-    const depEntries = Object.entries(context.dependencyResults);
-    if (depEntries.length > 0) {
-      lines.push("", "**Prior work:**");
-      for (const [, result] of depEntries) {
-        lines.push(`  - ${result.summary}`);
+    if (context.scratchpadContext) {
+      lines.push("", "**Prior work:**", context.scratchpadContext);
+    } else {
+      const depEntries = Object.entries(context.dependencyResults);
+      if (depEntries.length > 0) {
+        lines.push("", "**Prior work:**");
+        for (const [, result] of depEntries) {
+          lines.push(`  - ${result.summary}`);
+        }
       }
     }
 

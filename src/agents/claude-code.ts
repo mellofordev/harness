@@ -199,17 +199,22 @@ export class ClaudeCodeAdapter extends BaseAgentAdapter {
   }
 
   private buildHarnessContextBlock(context: TaskContext): string {
-    return [
+    const lines = [
       "<harness>",
       "  You are a worker agent in a Harness multi-agent orchestration session.",
       `  Working directory: ${context.workDir}`,
       context.planTitle ? `  Current plan: ${context.planTitle}` : "",
       "  Instructions: Complete only the task described below. Report your",
       "  results using the HARNESS_RESULT format at the end of your response.",
-      "</harness>",
-    ]
-      .filter(Boolean)
-      .join("\n");
+    ];
+
+    if (context.scratchpadPath) {
+      lines.push(`  Scratchpad: ${context.scratchpadPath} — update this file with your progress and findings.`);
+    }
+
+    lines.push("</harness>");
+
+    return lines.filter(Boolean).join("\n");
   }
 
   private extractSummary(output: string, fallbackTitle: string): string {
