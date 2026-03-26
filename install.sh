@@ -102,6 +102,9 @@ fi
 cd "$INSTALL_DIR"
 ok "Source ready at $INSTALL_DIR"
 
+APP_VERSION="$(bun -e "console.log(require('./package.json').version)" 2>/dev/null || echo "$VERSION")"
+info "Installing Harness CLI version: $APP_VERSION"
+
 # ─── Install dependencies ───────────────────────────────────────
 
 info "Installing dependencies..."
@@ -151,6 +154,7 @@ fi
 
 printf "\n${G}${B}✓ Harness CLI installed successfully!${D}\n\n"
 printf "  Get started:\n"
+printf "    ${C}harness version${D}\n"
 printf "    ${C}harness --help${D}\n"
 printf "    ${C}harness init${D}\n"
 printf "    ${C}harness demo${D}\n\n"

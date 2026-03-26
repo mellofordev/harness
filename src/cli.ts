@@ -22,13 +22,14 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { Orchestrator } from "./core/orchestrator";
 import { DEFAULT_CONFIG, type AgentProvider, type HarnessConfig } from "./core/types";
 import { loadConfig, writeDefaultConfig, getAdapterConfig } from "./core/config";
-import { autoSpawn } from "./core/auto-spawn";
 import { REGISTRY } from "./agents/index";
 import { startWatch } from "./commands/watch";
 import { logger } from "./utils/logger";
 import type { TaskDefinition } from "./planner/planner";
-import { decomposePrompt } from "./planner/ai-decomposer";
 import type { Message } from "./core/types";
+import { executePrompt } from "./core/prompt-runner";
+import { runInteractiveApp } from "./ui";
+import { HARNESS_VERSION, formatHarnessVersion } from "./core/version";
 
 // ─── Argument Parsing ──────────────────────────────────────────
 
@@ -77,6 +78,29 @@ function resolveHarnessDir(config: HarnessConfig): string {
   return join(resolve(config.workDir), config.harnessDir);
 }
 
+async function ensureHarnessInitialized(
+  config: HarnessConfig,
+  options?: { silent?: boolean }
+): Promise<void> {
+  const harnessDir = resolveHarnessDir(config);
+  if (existsSync(harnessDir)) return;
+
+  writeDefaultConfig(config.workDir);
+
+  const initializedConfig = loadConfig(config.workDir);
+  const orchestrator = new Orchestrator(initializedConfig);
+  await orchestrator.init(true);
+  await orchestrator.shutdown();
+
+  if (!options?.silent) {
+    console.log(
+      `\n${C.green}✓ Auto-initialized Harness${C.reset}\n` +
+        `  Workspace: ${resolve(config.workDir)}\n` +
+        `  State dir: ${resolveHarnessDir(initializedConfig)}\n`
+    );
+  }
+}
+
 // ─── Commands ──────────────────────────────────────────────────
 
 async function cmdInit() {
@@ -122,6 +146,7 @@ async function cmdInit() {
 
 async function cmdDiscover() {
   const config = resolveConfig();
+  await ensureHarnessInitialized(config);
   const orchestrator = new Orchestrator(config);
   await orchestrator.init(true);
 
@@ -152,12 +177,8 @@ async function cmdDiscover() {
 
 async function cmdStatus() {
   const config = resolveConfig();
+  await ensureHarnessInitialized(config, { silent: true });
   const harnessDir = resolveHarnessDir(config);
-
-  if (!existsSync(harnessDir)) {
-    console.log(`\n${C.yellow}No .harness/ directory found.${C.reset} Run 'harness init' first.\n`);
-    return;
-  }
 
   // Read state directly from disk (no need to spin up orchestrator)
   const sessionFile = join(harnessDir, "session.json");
@@ -241,11 +262,12 @@ async function cmdSpawn() {
   }
 
   const config = resolveConfig();
+  await ensureHarnessInitialized(config);
   const adapterConfig = getAdapterConfig(config.workDir);
 
   // Apply dry-run to adapter options
   const adapterOptions: Record<string, unknown> = {
-    ...(adapterConfig[provider as keyof typeof adapterConfig] || {}),
+    ...(adapterConfig?.[provider as keyof typeof adapterConfig] || {}),
     dryRun: isDryRun,
   };
 
@@ -286,6 +308,7 @@ async function cmdSpawn() {
 
 async function cmdAgents() {
   const config = resolveConfig();
+  await ensureHarnessInitialized(config, { silent: true });
   const harnessDir = resolveHarnessDir(config);
   const agentsDir = join(harnessDir, "agents");
 
@@ -327,6 +350,7 @@ async function cmdSend() {
   }
 
   const config = resolveConfig();
+  await ensureHarnessInitialized(config);
   const orchestrator = new Orchestrator(config);
   await orchestrator.init(true);
 
@@ -354,6 +378,7 @@ async function cmdPlan() {
     );
     process.exit(1);
   }
+  await ensureHarnessInitialized(resolveConfig(), { silent: true });
   await runPromptFlow(prompt, "plan");
 }
 
@@ -371,129 +396,72 @@ async function cmdRun() {
     );
     process.exit(1);
   }
-
+  await ensureHarnessInitialized(resolveConfig(), { silent: true });
   await runPromptFlow(prompt, "normal");
 }
 
 async function runPromptFlow(prompt: string, mode: "normal" | "plan") {
   const config = resolveConfig();
-  const orchestrator = new Orchestrator(config);
-  await orchestrator.init(true);
   const requestedProvider = getFlag("--with") as AgentProvider | undefined;
-  let title = "Quick Run";
-  let description = prompt;
-  let tasks: TaskDefinition[] = [];
-  let workerProviders: AgentProvider[] = [];
-  let leadProvider: AgentProvider | null = null;
-
-  try {
-    if (requestedProvider) {
-      const adapterConfig = getAdapterConfig(config.workDir);
-      const adapterOptions: Record<string, unknown> = {
-        ...(adapterConfig[requestedProvider as keyof typeof adapterConfig] || {}),
-        dryRun: isDryRun,
-      };
-
-      if (!isDryRun) {
-        const available = await REGISTRY.create(requestedProvider)?.isAvailable();
-        if (!available) {
-          console.warn(
-            `\n${C.yellow}⚠ '${requestedProvider}' CLI not found. Use --dry-run to simulate.${C.reset}\n`
-          );
-        }
-      }
-
-      orchestrator.spawnWorker(requestedProvider, config.workDir, adapterOptions);
-      workerProviders = [requestedProvider];
-      leadProvider = requestedProvider;
-    } else {
-      const auto = await autoSpawn(orchestrator, config, { dryRun: isDryRun });
-      workerProviders = auto.spawned;
-      leadProvider = auto.lead;
-    }
-
-    if (!leadProvider) {
-      throw new Error("No lead provider available for decomposition");
-    }
-
-    const decomposed = await decomposePrompt(prompt, {
-      provider: leadProvider,
-      workDir: config.workDir,
-      mode,
-      model: config.decomposerModel,
-      dryRun: isDryRun,
-    });
-
-    title = decomposed.title;
-    description = decomposed.description;
-    tasks = decomposed.tasks;
-
-    if (tasks.length === 0) {
-      tasks = [
-        {
-          title: prompt.slice(0, 80),
-          description: prompt,
-          priority: "normal",
-        },
-      ];
-    }
-
-    console.log(
-      `\n${C.cyan}${mode === "plan" ? "Planning" : "Running"} with Harness${C.reset}` +
-        `${isDryRun ? ` ${C.yellow}[DRY RUN]${C.reset}` : ""}\n` +
-        `  Prompt:   "${prompt.slice(0, 90)}"\n` +
-        `  Lead:     ${leadProvider}\n` +
-        `  Workers:  ${workerProviders.join(", ")}\n` +
-        `  Tasks:    ${tasks.length}\n`
-    );
-
-    if (mode === "plan") {
-      console.log(`${C.bold}Plan${C.reset}`);
-      console.log(`  Title: ${title}`);
-      console.log(`  Summary: ${description}`);
-      for (const [index, task] of tasks.entries()) {
-        const deps = task.dependsOnIndex?.map((n) => n + 1).join(", ");
-        const files = task.files?.length ? task.files.join(", ") : "(project context)";
-        console.log(
-          `  ${index + 1}. ${task.title} ${C.dim}[${task.priority || "normal"}]${C.reset}`
-        );
-        console.log(`     Files: ${files}`);
-        if (deps) console.log(`     Depends on: ${deps}`);
-      }
-      console.log();
-    }
-
-    await orchestrator.executePlan(title, description, tasks);
-  } catch (err) {
-    await orchestrator.shutdown();
-    throw err;
-  }
-
   const timeoutMs = parseInt(getFlag("--timeout") || "120000");
-  const start = Date.now();
+  let lastTick = "";
 
-  await new Promise<void>((resolve) => {
-    const dots = setInterval(() => process.stdout.write("."), 1000);
-    const check = setInterval(() => {
-      const planner = orchestrator.getPlanner();
-      if (!planner) return;
-      const status = planner.getStatus();
-      if (status.status === "completed" || planner.isPlanFailed() || Date.now() - start > timeoutMs) {
-        clearInterval(check);
-        clearInterval(dots);
-        process.stdout.write("\n");
-        resolve();
+  const result = await executePrompt({
+    prompt,
+    mode,
+    config,
+    requestedProvider,
+    dryRun: isDryRun,
+    timeoutMs,
+    onPrepared: ({ title, description, tasks, leadProvider, workerProviders }) => {
+      console.log(
+        `\n${C.cyan}${mode === "plan" ? "Planning" : "Running"} with Harness${C.reset}` +
+          `${isDryRun ? ` ${C.yellow}[DRY RUN]${C.reset}` : ""}\n` +
+          `  Prompt:   "${prompt.slice(0, 90)}"\n` +
+          `  Lead:     ${leadProvider}\n` +
+          `  Workers:  ${workerProviders.join(", ")}\n` +
+          `  Tasks:    ${tasks.length}\n`
+      );
+
+      if (mode === "plan") {
+        console.log(`${C.bold}Plan${C.reset}`);
+        console.log(`  Title: ${title}`);
+        console.log(`  Summary: ${description}`);
+        for (const [index, task] of tasks.entries()) {
+          const deps = task.dependsOnIndex?.map((n) => n + 1).join(", ");
+          const files = task.files?.length ? task.files.join(", ") : "(project context)";
+          console.log(
+            `  ${index + 1}. ${task.title} ${C.dim}[${task.priority || "normal"}]${C.reset}`
+          );
+          console.log(`     Files: ${files}`);
+          if (deps) console.log(`     Depends on: ${deps}`);
+        }
+        console.log();
       }
-    }, 1000);
+    },
+    onTick: (status) => {
+      const next = `${status.status}:${status.tasks.completed}/${status.tasks.total}`;
+      if (next !== lastTick) {
+        process.stdout.write(".");
+        lastTick = next;
+      }
+    },
   });
 
-  const finalStatus = orchestrator.getPlanner()?.getStatus();
-  const tasks_ = readJsonDir(join(resolveHarnessDir(config), "tasks")) as any[];
-  const completedTasks = tasks_.filter((task: any) => task?.result);
+  process.stdout.write("\n");
 
-  if (completedTasks.length > 0) {
+  if (requestedProvider && !isDryRun) {
+    const available = await REGISTRY.create(requestedProvider)?.isAvailable();
+    if (!available) {
+      console.warn(
+        `\n${C.yellow}⚠ '${requestedProvider}' CLI not found. Use --dry-run to simulate.${C.reset}\n`
+      );
+    }
+  }
+
+  if (result.taskResults.length > 0) {
     console.log(`\n${C.bold}Results:${C.reset}`);
-    for (const task of completedTasks) {
+    for (const task of result.taskResults as any[]) {
       console.log(
         `  ${colorStatus(task.result.success ? "completed" : "failed")} ${task.title}`
       );
@@ -501,18 +469,18 @@ async function runPromptFlow(prompt: string, mode: "normal" | "plan") {
       if (task.result.filesChanged?.length > 0) {
         console.log(`    Files:   ${task.result.filesChanged.join(", ")}`);
       }
-      if (task.result.output && completedTasks.length === 1) {
+      if (task.result.output && result.taskResults.length === 1) {
         console.log(`\n  Output:\n${C.gray}${task.result.output.slice(0, 1000)}${C.reset}`);
       }
     }
   }
 
-  await orchestrator.shutdown();
-  process.exit(finalStatus?.tasks.failed ? 1 : 0);
+  process.exit(result.success ? 0 : 1);
 }
 
 async function cmdWatch() {
   const config = resolveConfig();
+  await ensureHarnessInitialized(config);
   const harnessDir = resolveHarnessDir(config);
   const refreshMs = parseInt(getFlag("--interval") || "1000");
 
@@ -529,13 +497,9 @@ async function cmdWatch() {
 
 async function cmdLogs() {
   const config = resolveConfig();
+  await ensureHarnessInitialized(config, { silent: true });
   const harnessDir = resolveHarnessDir(config);
   const tail = parseInt(getFlag("--tail") || "50");
-
-  if (!existsSync(harnessDir)) {
-    console.log("\nNo .harness/ directory found. Run 'harness init' first.\n");
-    return;
-  }
 
   const allMsgs: Message[] = [];
 
@@ -596,6 +560,7 @@ async function cmdDemo() {
   logger.banner(`Harness CLI Demo${isDryRun ? " [DRY RUN]" : ""}`);
 
   const config = resolveConfig();
+  await ensureHarnessInitialized(config);
   const adapterOptions = { dryRun: true }; // Demo always dry-runs for safety
 
   const orchestrator = new Orchestrator(config);
@@ -706,12 +671,8 @@ async function cmdDemo() {
 
 async function cmdClean() {
   const config = resolveConfig();
+  await ensureHarnessInitialized(config, { silent: true });
   const harnessDir = resolveHarnessDir(config);
-
-  if (!existsSync(harnessDir)) {
-    console.log("\nNothing to clean — no .harness/ directory.\n");
-    return;
-  }
 
   const orchestrator = new Orchestrator(config);
   await orchestrator.init(true);
@@ -725,9 +686,13 @@ async function cmdClean() {
   await orchestrator.shutdown();
 }
 
+function cmdVersion() {
+  console.log(formatHarnessVersion());
+}
+
 function showHelp() {
   console.log(`
-${C.bold}⬡ Harness CLI${C.reset} — Multi-Agent AI Orchestrator  ${C.gray}alpha${C.reset}
+${C.bold}⬡ Harness CLI${C.reset} — Multi-Agent AI Orchestrator  ${C.gray}v${HARNESS_VERSION}${C.reset}
 
 ${C.cyan}Usage:${C.reset}
   harness <command> [options]
@@ -747,6 +712,8 @@ ${C.cyan}Commands:${C.reset}
 
 ${C.cyan}Advanced:${C.reset}
   spawn <provider>               Start a worker in this terminal
+  ui                             Open the interactive Harness console
+  version                        Print the installed Harness CLI version
 
 ${C.cyan}Options:${C.reset}
   --dir <path>                   Working directory (default: cwd)
@@ -865,11 +832,26 @@ function readJsonDir(dir: string): unknown[] {
       case "logs":     await cmdLogs();     break;
       case "demo":     await cmdDemo();     break;
       case "clean":    await cmdClean();    break;
+      case "version":  cmdVersion();        break;
+      case "ui": {
+        const config = resolveConfig();
+        await ensureHarnessInitialized(config);
+        await runInteractiveApp(config);
+        break;
+      }
+      case "--version":
+      case "-V":
+        cmdVersion();
+        break;
       case "help":
       case "--help":
       case "-h":
       case undefined:
-        showHelp();
+        {
+          const config = resolveConfig();
+          await ensureHarnessInitialized(config);
+          await runInteractiveApp(config);
+        }
         break;
       default:
         console.error(`${C.red}Unknown command: ${command}${C.reset}`);

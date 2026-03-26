@@ -1,6 +1,6 @@
 {
   "name": "harness-cli",
-  "version": "0.1.0-alpha.1",
+  "version": "0.2.0-alpha.0",
   "description": "Multi-agent AI orchestrator for Claude Code, Cursor, Codex, and Gemini CLI",
   "author": "sreedhar",
   "license": "MIT",
@@ -42,9 +42,14 @@
     "link": "bun link",
     "clean": "rm -rf dist coverage"
   },
-  "dependencies": {},
+  "dependencies": {
+    "ink": "^6.8.0",
+    "react": "^19.2.4",
+    "react-devtools-core": "^7.0.1"
+  },
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/react": "^19.2.14",
     "typescript": "^5.0.0"
   },
   "engines": {

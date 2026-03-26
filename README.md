@@ -44,6 +44,7 @@ sudo cp dist/harness /usr/local/bin/harness
 ```bash
 cd your-project/
 harness init              # creates .harness/ and config
+harness                   # open the interactive console
 harness discover          # check which AI CLIs are available
 harness demo --dry-run    # safe walkthrough with no real API calls
 ```
@@ -60,6 +61,21 @@ harness run "refactor the config module" --dry-run   # simulate only
 `harness run` is the execution path: give Harness a prompt, feature request, issue description, or file reference and it will auto-detect local AI CLIs, choose a lead agent, decompose the work, and execute.
 
 `harness plan` is the review-first variant: it takes the same kind of prompt, shows the generated task split, then runs it.
+
+You can also open the interactive console explicitly with `harness ui`.
+
+Inside the interactive console, the prompt box also accepts slash commands:
+- `/exit` — leave the interactive Harness console
+- `/help` — show available slash commands
+- `/plan` — switch the console to plan mode
+- `/normal` — switch the console to normal mode
+- `/clear` — clear the local UI state
+- `/discover` — refresh detected local CLIs
+- `/watch` — print the current plan/task snapshot into the transcript
+- `/agents` — list registered agents and their current status
+- `/version` — print the installed Harness version
+
+When the slash-command menu is open, use the up/down arrow keys to move through the available commands and press Enter to run the selected one.
 
 ### Run a multi-agent plan
 
@@ -83,6 +99,8 @@ harness watch
 | `agents` | List all registered agents |
 | `run <prompt>` | Execute a prompt through auto-orchestrated agents |
 | `plan <prompt>` | Preview the generated decomposition, then execute |
+| `ui` | Open the interactive Harness console |
+| `version` | Print the installed Harness CLI version |
 | `send <agentId> <msg>` | Send a message to an agent |
 | `watch` | Stream live `.harness/` activity |
 | `logs` | Show recent message history |
@@ -161,6 +179,22 @@ bun run build            # compile to dist/ (Bun-targeted JS)
 bun run build:binary     # compile to dist/harness standalone binary
 bun link                 # register `harness` globally for local dev
 ```
+
+## Updating
+
+Installed via the one-line installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mellofordev/harness/main/install.sh | bash
+```
+
+Installed from a local clone:
+
+```bash
+./update.sh
+```
+
+Verify the installed CLI version with `harness version`.
 
 ---
 

@@ -25,15 +25,24 @@ const LEAD_PREFERENCE: AgentProvider[] = ["claude-code", "codex", "gemini-cli"];
 export async function autoSpawn(
   orchestrator: Orchestrator,
   config: HarnessConfig,
-  options?: { dryRun?: boolean }
+  options?: {
+    dryRun?: boolean;
+    includeProviders?: AgentProvider[];
+    preferredLeadProvider?: AgentProvider;
+  }
 ): Promise<AutoSpawnResult> {
   const availability = await REGISTRY.checkAll();
   const adapterConfig = getAdapterConfig(config.workDir);
+  const includeProviders = options?.includeProviders;
 
   const spawned: AgentProvider[] = [];
   const unavailable: AgentProvider[] = [];
 
   for (const [provider, available] of Object.entries(availability)) {
+    if (includeProviders && !includeProviders.includes(provider as AgentProvider)) {
+      continue;
+    }
+
     if (!available) {
       unavailable.push(provider as AgentProvider);
       continue;
@@ -71,7 +80,9 @@ export async function autoSpawn(
 
   // Select lead provider
   let lead: AgentProvider;
-  if (config.leadProvider && spawned.includes(config.leadProvider)) {
+  if (options?.preferredLeadProvider && spawned.includes(options.preferredLeadProvider)) {
+    lead = options.preferredLeadProvider;
+  } else if (config.leadProvider && spawned.includes(config.leadProvider)) {
     lead = config.leadProvider;
   } else {
     lead = LEAD_PREFERENCE.find((p) => spawned.includes(p)) || spawned[0];

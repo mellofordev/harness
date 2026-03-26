@@ -12,7 +12,7 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { HarnessConfig } from "./types";
+import type { AgentProvider, HarnessConfig } from "./types";
 import { DEFAULT_CONFIG } from "./types";
 
 export interface PersistedConfig {
@@ -25,7 +25,7 @@ export interface PersistedConfig {
   maxConcurrentWorkers?: number;
   autoSpawn?: boolean;
   autoCommit?: boolean;
-  leadProvider?: string;
+  leadProvider?: AgentProvider;
   decomposerModel?: string;
   defaultProvider?: string;
   providers?: Partial<HarnessConfig["providers"]>;
@@ -85,7 +85,7 @@ export function saveConfig(workDir: string, config: PersistedConfig): void {
   }
 
   const configPath = join(dir, "config.json");
-  writeFileSync(configPath, JSON.stringify({ version: CONFIG_VERSION, ...config }, null, 2));
+  writeFileSync(configPath, JSON.stringify({ ...config, version: CONFIG_VERSION }, null, 2));
 }
 
 export function writeDefaultConfig(workDir: string): void {
