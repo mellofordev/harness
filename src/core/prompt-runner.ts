@@ -36,7 +36,6 @@ export interface ExecutePromptOptions {
   requestedProvider?: AgentProvider;
   preferredLeadProvider?: AgentProvider;
   workerProviders?: AgentProvider[];
-  dryRun?: boolean;
   timeoutMs?: number;
   onPrepared?: (prepared: PreparedPromptRun) => void;
   onTick?: (status: PlanStatus) => void;
@@ -50,7 +49,6 @@ export async function executePrompt(options: ExecutePromptOptions): Promise<Prom
     requestedProvider,
     preferredLeadProvider,
     workerProviders: requestedWorkerProviders,
-    dryRun = false,
     timeoutMs = 120_000,
     onPrepared,
     onTick,
@@ -70,14 +68,11 @@ export async function executePrompt(options: ExecutePromptOptions): Promise<Prom
       const adapterConfig = getAdapterConfig(config.workDir);
       const adapterOptions: Record<string, unknown> = {
         ...(adapterConfig?.[requestedProvider as keyof typeof adapterConfig] || {}),
-        dryRun,
       };
 
-      if (!dryRun) {
-        const available = await REGISTRY.create(requestedProvider)?.isAvailable();
-        if (!available) {
-          throw new Error(`'${requestedProvider}' CLI not found on PATH`);
-        }
+      const available = await REGISTRY.create(requestedProvider)?.isAvailable();
+      if (!available) {
+        throw new Error(`'${requestedProvider}' CLI not found on PATH`);
       }
 
       orchestrator.spawnWorker(requestedProvider, config.workDir, adapterOptions);
@@ -85,7 +80,6 @@ export async function executePrompt(options: ExecutePromptOptions): Promise<Prom
       leadProvider = requestedProvider;
     } else {
       const auto = await autoSpawn(orchestrator, config, {
-        dryRun,
         includeProviders: requestedWorkerProviders,
         preferredLeadProvider,
       });
@@ -102,7 +96,6 @@ export async function executePrompt(options: ExecutePromptOptions): Promise<Prom
       workDir: config.workDir,
       mode,
       model: config.decomposerModel,
-      dryRun,
     });
 
     title = decomposed.title;

@@ -72,13 +72,11 @@ export interface TaskContext {
 export interface ExecutionOptions {
   timeoutMs: number;
   maxOutputBytes: number;
-  dryRun: boolean;
 }
 
 export const DEFAULT_EXECUTION_OPTIONS: ExecutionOptions = {
   timeoutMs: 300_000,   // 5 minutes
   maxOutputBytes: 10 * 1024 * 1024, // 10 MB
-  dryRun: false,
 };
 
 // ─── Abstract Base (optional convenience class) ─────────────────

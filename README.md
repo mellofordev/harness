@@ -46,7 +46,7 @@ cd your-project/
 harness init              # creates .harness/ and config
 harness                   # open the interactive console
 harness discover          # check which AI CLIs are available
-harness demo --dry-run    # safe walkthrough with no real API calls
+harness demo              # walkthrough with sample tasks
 ```
 
 ### Run a single task
@@ -55,7 +55,6 @@ harness demo --dry-run    # safe walkthrough with no real API calls
 harness run "add error handling to src/api.ts"
 harness run "write tests for auth.ts" --with codex
 harness plan "refactor the config module"
-harness run "refactor the config module" --dry-run   # simulate only
 ```
 
 `harness run` is the execution path: give Harness a prompt, feature request, issue description, or file reference and it will auto-detect local AI CLIs, choose a lead agent, decompose the work, and execute.
@@ -104,11 +103,9 @@ harness watch
 | `send <agentId> <msg>` | Send a message to an agent |
 | `watch` | Stream live `.harness/` activity |
 | `logs` | Show recent message history |
-| `demo` | Run the built-in demo (safe, dry-run) |
+| `demo` | Run the built-in demo |
 | `clean` | Remove stale agents and messages |
 | `spawn <provider>` | Advanced: manually start a worker |
-
-All commands accept `--dry-run` to simulate without calling any AI CLI.
 
 ---
 

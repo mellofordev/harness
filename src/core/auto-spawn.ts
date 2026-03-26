@@ -26,7 +26,6 @@ export async function autoSpawn(
   orchestrator: Orchestrator,
   config: HarnessConfig,
   options?: {
-    dryRun?: boolean;
     includeProviders?: AgentProvider[];
     preferredLeadProvider?: AgentProvider;
   }
@@ -56,7 +55,6 @@ export async function autoSpawn(
 
     const adapterOptions: Record<string, unknown> = {
       ...(adapterConfig?.[provider as keyof typeof adapterConfig] || {}),
-      dryRun: options?.dryRun ?? false,
     };
 
     try {

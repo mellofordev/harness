@@ -43,7 +43,7 @@ bun run build            # compile to dist/
 - Keep `Worker` provider-agnostic — all provider logic belongs in an adapter
 - The planner should own coordination; workers should not coordinate with each other
 - All new CLI commands should be `async` and handled in the IIFE at the bottom of `cli.ts`
-- Write dry-run support in every adapter (`if (this.options.dryRun) { ... }`)
+- All provider-specific logic belongs in the adapter, not in the worker or planner
 
 ## Reporting issues
 
