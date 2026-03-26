@@ -131,6 +131,10 @@ export interface HarnessConfig {
   heartbeatIntervalMs: number;
   taskTimeoutMs: number;
   maxConcurrentWorkers: number;
+  autoSpawn: boolean;
+  autoCommit: boolean;
+  leadProvider?: AgentProvider;
+  decomposerModel?: string;
   providers: {
     [key in AgentProvider]?: {
       enabled: boolean;
@@ -147,6 +151,8 @@ export const DEFAULT_CONFIG: HarnessConfig = {
   heartbeatIntervalMs: 5000,
   taskTimeoutMs: 300_000, // 5 minutes
   maxConcurrentWorkers: 10,
+  autoSpawn: true,
+  autoCommit: false,
   providers: {
     "claude-code": { enabled: true, command: "claude" },
     "cursor": { enabled: true },

@@ -7,6 +7,7 @@
 // Core
 export { Orchestrator } from "./core/orchestrator";
 export { loadConfig, saveConfig, writeDefaultConfig, getAdapterConfig } from "./core/config";
+export { HARNESS_VERSION, formatHarnessVersion } from "./core/version";
 export type {
   AgentInfo,
   AgentProvider,

@@ -27,9 +27,27 @@ printf "${C}▸${D} Bun v$(bun --version)\n"
 printf "${C}▸${D} Installing dependencies...\n"
 bun install
 
-# link globally
-printf "${C}▸${D} Linking 'harness' command...\n"
-bun link
+BIN_DIR=""
+CURRENT_HARNESS="$(command -v harness 2>/dev/null || true)"
+
+if [ -n "$CURRENT_HARNESS" ] && [ -w "$(dirname "$CURRENT_HARNESS")" ]; then
+  BIN_DIR="$(dirname "$CURRENT_HARNESS")"
+elif [ -d "$HOME/.bun/bin" ] && [ -w "$HOME/.bun/bin" ]; then
+  BIN_DIR="$HOME/.bun/bin"
+elif [ -w "/usr/local/bin" ]; then
+  BIN_DIR="/usr/local/bin"
+else
+  mkdir -p "$HOME/.local/bin"
+  BIN_DIR="$HOME/.local/bin"
+fi
+
+printf "${C}▸${D} Building standalone binary...\n"
+bun build src/cli.ts --compile --outfile dist/harness
+
+printf "${C}▸${D} Installing 'harness' to ${BIN_DIR}...\n"
+rm -f "${BIN_DIR}/harness"
+cp dist/harness "${BIN_DIR}/harness"
+chmod +x "${BIN_DIR}/harness"
 
 printf "\n${G}${B}✓ Done!${D} You can now run ${C}harness${D} from anywhere.\n\n"
 printf "  Try:\n"

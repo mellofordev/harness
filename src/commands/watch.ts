@@ -52,6 +52,7 @@ interface WatchState {
   lastMessageIds: Set<string>;
   lastTaskStates: Map<string, string>;
   lastAgentStates: Map<string, string>;
+  recentEvents: string[];
 }
 
 export function startWatch(harnessDir: string, refreshMs = 1000): () => void {
@@ -65,6 +66,7 @@ export function startWatch(harnessDir: string, refreshMs = 1000): () => void {
     lastMessageIds: new Set(),
     lastTaskStates: new Map(),
     lastAgentStates: new Map(),
+    recentEvents: [],
   };
 
   // Print the static header once
@@ -80,29 +82,19 @@ export function startWatch(harnessDir: string, refreshMs = 1000): () => void {
   return () => clearInterval(interval);
 }
 
-function printHeader(harnessDir: string) {
-  console.clear();
-  console.log(
-    `${C.bold}${C.cyan}⬡ Harness Watch${C.reset}  ${C.gray}${harnessDir}${C.reset}`
-  );
-  console.log(`${C.gray}${"─".repeat(60)}${C.reset}`);
-  console.log(
-    `${C.dim}Streaming activity from .harness/ — Ctrl+C to stop${C.reset}\n`
-  );
-}
-
 function tick(harnessDir: string, state: WatchState) {
   const agents = readJsonDir<AgentInfo>(join(harnessDir, "agents"));
   const tasks = readJsonDir<Task>(join(harnessDir, "tasks"));
   const plans = readJsonDir<Plan>(join(harnessDir, "plans"));
 
-  // ─── Print agent changes ─────────────────────────────────────
+  const events: string[] = [];
+
   for (const agent of agents) {
     const prev = state.lastAgentStates.get(agent.id);
     if (prev !== agent.status) {
       const ago = formatAge(agent.lastHeartbeat);
       const provColor = providerColor(agent.provider);
-      console.log(
+      events.push(
         `${C.gray}${timestamp()}${C.reset}  ` +
           `${provColor}⬡ ${agent.provider}${C.reset} ${C.dim}[${agent.id.slice(0, 8)}]${C.reset} ` +
           `${prev ? `${colorStatus(prev)} → ` : ""}${colorStatus(agent.status)} ` +
@@ -112,14 +104,13 @@ function tick(harnessDir: string, state: WatchState) {
     }
   }
 
-  // ─── Print task changes ──────────────────────────────────────
   for (const task of tasks) {
     const prev = state.lastTaskStates.get(task.id);
     if (prev !== task.status) {
       const assignee = task.assignedTo
         ? ` → ${C.dim}${task.assignedTo.slice(0, 8)}${C.reset}`
         : "";
-      console.log(
+      events.push(
         `${C.gray}${timestamp()}${C.reset}  ` +
           `${C.bold}◆ task${C.reset} ${C.dim}[${task.id.slice(0, 8)}]${C.reset} ` +
           `${prev ? `${colorStatus(prev)} → ` : ""}${colorStatus(task.status)} ` +
@@ -129,13 +120,12 @@ function tick(harnessDir: string, state: WatchState) {
     }
   }
 
-  // ─── Print new messages ──────────────────────────────────────
   const allMsgs = readNewMessages(harnessDir, state.lastMessageIds);
   for (const msg of allMsgs) {
     if (!state.lastMessageIds.has(msg.id)) {
       const from = msg.from.slice(0, 8);
       const to = msg.to === "*" ? "broadcast" : msg.to.slice(0, 8);
-      console.log(
+      events.push(
         `${C.gray}${timestamp()}${C.reset}  ` +
           `${C.magenta}✉ msg${C.reset} ${C.dim}${from} → ${to}${C.reset} ` +
           `${C.yellow}${msg.type}${C.reset}`
@@ -144,19 +134,79 @@ function tick(harnessDir: string, state: WatchState) {
     }
   }
 
-  // ─── Print plan summary if active ───────────────────────────
-  for (const plan of plans) {
-    if (plan.status === "active") {
-      const done = plan.tasks.filter((t) => t.status === "completed").length;
-      const total = plan.tasks.length;
-      const failed = plan.tasks.filter((t) => t.status === "failed").length;
-      const bar = makeProgressBar(done, total, 20);
-      process.stdout.write(
-        `\r${C.gray}Plan: ${C.reset}${C.bold}${plan.title.slice(0, 30)}${C.reset}  ` +
-          `${bar} ${done}/${total}` +
-          (failed > 0 ? `  ${C.red}${failed} failed${C.reset}` : "") +
-          "   "
+  if (events.length > 0) {
+    state.recentEvents = [...state.recentEvents, ...events].slice(-12);
+  }
+
+  renderDashboard(harnessDir, agents, tasks, plans, state);
+}
+
+function printHeader(harnessDir: string) {
+  console.log(
+    `${C.bold}${C.cyan}⬡ Harness Watch${C.reset}  ${C.gray}${harnessDir}${C.reset}`
+  );
+  console.log(`${C.gray}${"─".repeat(72)}${C.reset}`);
+  console.log(`${C.dim}Live orchestration dashboard. Ctrl+C to stop.${C.reset}\n`);
+}
+
+function renderDashboard(
+  harnessDir: string,
+  agents: AgentInfo[],
+  tasks: Task[],
+  plans: Plan[],
+  state: WatchState
+) {
+  console.clear();
+  printHeader(harnessDir);
+
+  const busyAgents = agents.filter((agent) => agent.status === "busy").length;
+  const activeTasks = tasks.filter((task) => task.status === "assigned" || task.status === "in_progress").length;
+  const completedTasks = tasks.filter((task) => task.status === "completed").length;
+  const failedTasks = tasks.filter((task) => task.status === "failed").length;
+
+  console.log(
+    `${C.bold}Overview${C.reset}  ` +
+      `${C.green}${agents.length} agents${C.reset}  ` +
+      `${C.yellow}${busyAgents} busy${C.reset}  ` +
+      `${C.cyan}${activeTasks} active tasks${C.reset}  ` +
+      `${C.green}${completedTasks} completed${C.reset}` +
+      (failedTasks > 0 ? `  ${C.red}${failedTasks} failed${C.reset}` : "")
+  );
+
+  const activePlan = plans.find((plan) => plan.status === "active") || plans.at(-1);
+  if (activePlan) {
+    const done = activePlan.tasks.filter((t) => t.status === "completed").length;
+    const total = activePlan.tasks.length;
+    const failed = activePlan.tasks.filter((t) => t.status === "failed").length;
+    console.log(
+      `${C.bold}Plan${C.reset}      ${activePlan.title.slice(0, 48)}  ` +
+        `${makeProgressBar(done, total, 20)} ${done}/${total}` +
+        (failed > 0 ? `  ${C.red}${failed} failed${C.reset}` : "")
+    );
+  } else {
+    console.log(`${C.bold}Plan${C.reset}      ${C.dim}No plan state yet${C.reset}`);
+  }
+
+  console.log(`\n${C.bold}Agents${C.reset}`);
+  if (agents.length === 0) {
+    console.log(`  ${C.dim}No registered agents${C.reset}`);
+  } else {
+    for (const agent of agents.slice(0, 6)) {
+      console.log(
+        `  ${providerColor(agent.provider)}${agent.provider.padEnd(12)}${C.reset} ` +
+          `${colorStatus(agent.status).padEnd(18)} ` +
+          `${C.dim}${agent.role}${C.reset}  ` +
+          `${C.gray}${formatAge(agent.lastHeartbeat)}${C.reset}`
       );
+    }
+  }
+
+  console.log(`\n${C.bold}Recent Events${C.reset}`);
+  if (state.recentEvents.length === 0) {
+    console.log(`  ${C.dim}Waiting for activity...${C.reset}`);
+  } else {
+    for (const event of state.recentEvents) {
+      console.log(`  ${event}`);
     }
   }
 }
