@@ -23,7 +23,6 @@ export interface CommitOptions {
   planDescription: string;
   taskResults: TaskResult[];
   provider: AgentProvider;
-  dryRun?: boolean;
 }
 
 // ─── Git Helpers ────────────────────────────────────────────────
@@ -169,12 +168,6 @@ export async function smartCommit(options: CommitOptions): Promise<string | null
   }
 
   const diffStat = gitDiffStat(options.workDir);
-
-  if (options.dryRun) {
-    logger.info(`[DRY RUN] Would commit with AI-generated message`);
-    logger.info(`[DRY RUN] Diff stat:\n${diffStat}`);
-    return null;
-  }
 
   logger.info("Generating commit message...");
 

@@ -38,7 +38,6 @@ export interface CodexAdapterOptions {
   provider?: string;        // Codex supports multiple backends (openai, azure, etc.)
   timeoutMs?: number;
   maxOutputBytes?: number;
-  dryRun?: boolean;
 }
 
 export class CodexAdapter extends BaseAgentAdapter {
@@ -56,7 +55,7 @@ export class CodexAdapter extends BaseAgentAdapter {
   private cliOptions: Required<CodexAdapterOptions>;
 
   constructor(options: CodexAdapterOptions = {}) {
-    super({ timeoutMs: options.timeoutMs, maxOutputBytes: options.maxOutputBytes, dryRun: options.dryRun });
+    super({ timeoutMs: options.timeoutMs, maxOutputBytes: options.maxOutputBytes });
     this.cliOptions = {
       model: "o4-mini",
       approvalMode: "full-auto",  // Needed for unattended operation
@@ -64,7 +63,6 @@ export class CodexAdapter extends BaseAgentAdapter {
       provider: "openai",
       timeoutMs: options.timeoutMs ?? 300_000,
       maxOutputBytes: options.maxOutputBytes ?? 10 * 1024 * 1024,
-      dryRun: options.dryRun ?? false,
       ...options,
     };
   }
@@ -79,16 +77,6 @@ export class CodexAdapter extends BaseAgentAdapter {
   }
 
   async execute(task: Task, context: TaskContext): Promise<TaskResult> {
-    if (this.options.dryRun) {
-      logger.agent("codex", `[DRY RUN] Would execute: ${task.title}`);
-      return {
-        success: true,
-        summary: `[DRY RUN] Codex would process: ${task.title}`,
-        filesChanged: [],
-        output: this.buildPrompt(task, context).slice(0, 500),
-      };
-    }
-
     logger.agent("codex", `Executing: ${task.title}`, task.id);
 
     try {

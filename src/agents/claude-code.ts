@@ -38,7 +38,6 @@ export interface ClaudeCodeOptions {
   allowedTools?: string[];  // e.g. ["Read", "Write", "Bash"]
   timeoutMs?: number;
   maxOutputBytes?: number;
-  dryRun?: boolean;
 }
 
 export class ClaudeCodeAdapter extends BaseAgentAdapter {
@@ -59,7 +58,7 @@ export class ClaudeCodeAdapter extends BaseAgentAdapter {
   private cliOptions: ClaudeCodeOptions;
 
   constructor(options: ClaudeCodeOptions = {}) {
-    super({ timeoutMs: options.timeoutMs, maxOutputBytes: options.maxOutputBytes, dryRun: options.dryRun });
+    super({ timeoutMs: options.timeoutMs, maxOutputBytes: options.maxOutputBytes });
     this.cliOptions = {
       mode: "print",
       model: "claude-sonnet-4-5",
@@ -79,16 +78,6 @@ export class ClaudeCodeAdapter extends BaseAgentAdapter {
 
   async execute(task: Task, context: TaskContext): Promise<TaskResult> {
     const prompt = this.buildPrompt(task, context);
-
-    if (this.options.dryRun) {
-      logger.agent("claude-code", `[DRY RUN] Would execute: ${task.title}`);
-      return {
-        success: true,
-        summary: `[DRY RUN] Claude Code would process: ${task.title}`,
-        filesChanged: [],
-        output: prompt.slice(0, 500),
-      };
-    }
 
     logger.agent("claude-code", `Executing: ${task.title}`, task.id);
 

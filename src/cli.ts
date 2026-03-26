@@ -62,7 +62,6 @@ function getPositionals(excludedFlags: string[] = []): string[] {
   return positionals;
 }
 
-const isDryRun = hasFlag("--dry-run");
 const isVerbose = hasFlag("--verbose") || hasFlag("-v");
 
 if (isVerbose) logger.setLevel("debug");
@@ -140,7 +139,7 @@ async function cmdInit() {
     );
   }
 
-  console.log(`\n  Next: ${C.cyan}harness discover${C.reset}  or  ${C.cyan}harness demo --dry-run${C.reset}\n`);
+  console.log(`\n  Next: ${C.cyan}harness discover${C.reset}  or  ${C.cyan}harness demo${C.reset}\n`);
   await orchestrator.shutdown();
 }
 
@@ -265,32 +264,25 @@ async function cmdSpawn() {
   await ensureHarnessInitialized(config);
   const adapterConfig = getAdapterConfig(config.workDir);
 
-  // Apply dry-run to adapter options
   const adapterOptions: Record<string, unknown> = {
     ...(adapterConfig?.[provider as keyof typeof adapterConfig] || {}),
-    dryRun: isDryRun,
   };
 
   const orchestrator = new Orchestrator(config);
   await orchestrator.init(true);
 
-  // Check if CLI is available (skip check in dry-run)
-  if (!isDryRun) {
-    const available = await REGISTRY.create(provider)?.isAvailable();
-    if (!available) {
-      console.warn(
-        `\n${C.yellow}⚠ Warning: '${provider}' CLI not found on PATH.${C.reset}\n` +
-          `  Worker will start but tasks will fail without the CLI.\n` +
-          `  Use --dry-run to simulate execution.\n`
-      );
-    }
+  const available = await REGISTRY.create(provider)?.isAvailable();
+  if (!available) {
+    console.warn(
+      `\n${C.yellow}⚠ Warning: '${provider}' CLI not found on PATH.${C.reset}\n` +
+        `  Worker will start but tasks will fail without the CLI.\n`
+    );
   }
 
   const worker = orchestrator.spawnWorker(provider, config.workDir, adapterOptions);
 
   console.log(
     `\n${C.green}✓ Worker spawned${C.reset}` +
-      `${isDryRun ? ` ${C.yellow}[DRY RUN]${C.reset}` : ""}` +
       `\n  ID:       ${worker.getId()}` +
       `\n  Provider: ${provider}` +
       `\n  WorkDir:  ${config.workDir}` +
@@ -370,7 +362,7 @@ async function cmdPlan() {
   const prompt = getPositionals(["--with", "--timeout", "--dir"]).join(" ");
   if (!prompt) {
     console.error(
-      "Usage: harness plan <prompt> [--with <provider>] [--dry-run]\n\n" +
+      "Usage: harness plan <prompt> [--with <provider>]\n\n" +
         "Examples:\n" +
         '  harness plan "implement OAuth login flow"\n' +
         '  harness plan "fix auth race condition in src/auth.ts"\n' +
@@ -388,11 +380,10 @@ async function cmdRun() {
 
   if (!prompt) {
     console.error(
-      "Usage: harness run <prompt> [--with <provider>] [--dry-run]\n\n" +
+      "Usage: harness run <prompt> [--with <provider>]\n\n" +
         "Examples:\n" +
         '  harness run "add error handling to src/api.ts"\n' +
-        '  harness run "write tests for utils.ts" --with codex\n' +
-        '  harness run "refactor auth module" --dry-run'
+        '  harness run "write tests for utils.ts" --with codex'
     );
     process.exit(1);
   }
@@ -411,12 +402,10 @@ async function runPromptFlow(prompt: string, mode: "normal" | "plan") {
     mode,
     config,
     requestedProvider,
-    dryRun: isDryRun,
     timeoutMs,
     onPrepared: ({ title, description, tasks, leadProvider, workerProviders }) => {
       console.log(
-        `\n${C.cyan}${mode === "plan" ? "Planning" : "Running"} with Harness${C.reset}` +
-          `${isDryRun ? ` ${C.yellow}[DRY RUN]${C.reset}` : ""}\n` +
+        `\n${C.cyan}${mode === "plan" ? "Planning" : "Running"} with Harness${C.reset}\n` +
           `  Prompt:   "${prompt.slice(0, 90)}"\n` +
           `  Lead:     ${leadProvider}\n` +
           `  Workers:  ${workerProviders.join(", ")}\n` +
@@ -450,14 +439,6 @@ async function runPromptFlow(prompt: string, mode: "normal" | "plan") {
 
   process.stdout.write("\n");
 
-  if (requestedProvider && !isDryRun) {
-    const available = await REGISTRY.create(requestedProvider)?.isAvailable();
-    if (!available) {
-      console.warn(
-        `\n${C.yellow}⚠ '${requestedProvider}' CLI not found. Use --dry-run to simulate.${C.reset}\n`
-      );
-    }
-  }
 
   if (result.taskResults.length > 0) {
     console.log(`\n${C.bold}Results:${C.reset}`);
@@ -557,11 +538,10 @@ async function cmdLogs() {
 }
 
 async function cmdDemo() {
-  logger.banner(`Harness CLI Demo${isDryRun ? " [DRY RUN]" : ""}`);
+  logger.banner("Harness CLI Demo");
 
   const config = resolveConfig();
   await ensureHarnessInitialized(config);
-  const adapterOptions = { dryRun: true }; // Demo always dry-runs for safety
 
   const orchestrator = new Orchestrator(config);
   await orchestrator.init(true);
@@ -572,18 +552,19 @@ async function cmdDemo() {
   const anyAvailable = Object.values(available).some(Boolean);
   if (!anyAvailable) {
     console.log(
-      `${C.yellow}No CLI tools found — running in full dry-run mode${C.reset}\n`
+      `${C.yellow}No CLI tools found. Install at least one AI CLI to run the demo.${C.reset}\n`
     );
+    await orchestrator.shutdown();
+    return;
   }
 
-  // Step 2: Spawn workers (dry-run)
+  // Step 2: Spawn workers
   console.log(`\n${C.bold}═══ Step 2: Spawning workers ═══${C.reset}\n`);
-  const workers = orchestrator.spawnWorkers(
-    ["claude-code", "codex"],
-    config.workDir,
-    adapterOptions
-  );
-  console.log(`  ${C.green}✓${C.reset} Spawned ${workers.length} workers (dry-run mode)\n`);
+  const availableProviders = Object.entries(available)
+    .filter(([, v]) => v)
+    .map(([k]) => k as AgentProvider);
+  const workers = orchestrator.spawnWorkers(availableProviders, config.workDir);
+  console.log(`  ${C.green}✓${C.reset} Spawned ${workers.length} worker(s)\n`);
 
   // Step 3: Create a plan
   console.log(`${C.bold}═══ Step 3: Creating multi-task plan ═══${C.reset}\n`);
@@ -658,9 +639,7 @@ async function cmdDemo() {
     }, 500);
   });
 
-  logger.banner(
-    isDryRun || true ? "Demo complete! (dry-run)" : "Demo complete!"
-  );
+  logger.banner("Demo complete!");
   console.log(
     `  To run a real plan:\n` +
       `  ${C.cyan}harness plan "My plan" --file examples/plan-refactor-auth.md${C.reset}\n`
@@ -707,7 +686,7 @@ ${C.cyan}Commands:${C.reset}
   send <agentId> <message>       Send a message to an agent
   watch                          Stream live .harness/ activity
   logs [--tail N]                Show recent message history
-  demo                           Run the built-in demo (safe, dry-run)
+  demo                           Run the built-in demo
   clean                          Remove stale agents and old messages
 
 ${C.cyan}Advanced:${C.reset}
@@ -721,7 +700,6 @@ ${C.cyan}Options:${C.reset}
   --tail <n>                     Lines for 'logs' (default: 50)
   --interval <ms>                Refresh rate for 'watch' (default: 1000)
   --timeout <ms>                 Timeout for 'run' (default: 120000)
-  --dry-run                      Simulate without calling any AI CLI
   --verbose, -v                  Debug logging
 
 ${C.cyan}Providers:${C.reset}

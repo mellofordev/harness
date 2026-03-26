@@ -839,19 +839,6 @@ function formatSummary(
   return lines.join("\n");
 }
 
-function phaseColor(phase: RunPhase) {
-  switch (phase) {
-    case "running":
-      return "yellow";
-    case "done":
-      return "green";
-    case "error":
-      return "red";
-    default:
-      return "white";
-  }
-}
-
 function entryTone(
   tone: TranscriptEntry["tone"],
   kind: TranscriptEntry["kind"]

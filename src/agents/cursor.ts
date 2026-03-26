@@ -39,7 +39,6 @@ export interface CursorAdapterOptions {
   resultTimeoutMs?: number;
   timeoutMs?: number;
   maxOutputBytes?: number;
-  dryRun?: boolean;
 }
 
 const CURSOR_TASK_FILE = ".cursor/harness-task.md";
@@ -60,14 +59,13 @@ export class CursorAdapter extends BaseAgentAdapter {
   private cliOptions: Required<CursorAdapterOptions>;
 
   constructor(options: CursorAdapterOptions = {}) {
-    super({ timeoutMs: options.timeoutMs, maxOutputBytes: options.maxOutputBytes, dryRun: options.dryRun });
+    super({ timeoutMs: options.timeoutMs, maxOutputBytes: options.maxOutputBytes });
     this.cliOptions = {
       strategy: "workspace-inject",
       resultPollIntervalMs: 3000,
       resultTimeoutMs: options.timeoutMs ?? 300_000,
       timeoutMs: options.timeoutMs ?? 300_000,
       maxOutputBytes: options.maxOutputBytes ?? 10 * 1024 * 1024,
-      dryRun: options.dryRun ?? false,
       ...options,
     };
   }
@@ -94,16 +92,6 @@ export class CursorAdapter extends BaseAgentAdapter {
   }
 
   async execute(task: Task, context: TaskContext): Promise<TaskResult> {
-    if (this.options.dryRun) {
-      logger.agent("cursor", `[DRY RUN] Would inject task: ${task.title}`);
-      return {
-        success: true,
-        summary: `[DRY RUN] Cursor would process: ${task.title}`,
-        filesChanged: [],
-        output: this.buildPrompt(task, context).slice(0, 500),
-      };
-    }
-
     switch (this.cliOptions.strategy) {
       case "cli":
         return this.executeViaCli(task, context);

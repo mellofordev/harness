@@ -22,7 +22,6 @@ export interface DecomposeOptions {
   workDir: string;
   mode: "normal" | "plan";
   model?: string;
-  dryRun?: boolean;
 }
 
 export interface DecomposeResult {
@@ -161,12 +160,7 @@ export async function decomposePrompt(
   prompt: string,
   options: DecomposeOptions
 ): Promise<DecomposeResult> {
-  const { provider, workDir, mode, model, dryRun } = options;
-
-  if (dryRun) {
-    logger.info("[DRY RUN] Would decompose prompt via AI — returning single-task fallback");
-    return createFallback(prompt);
-  }
+  const { provider, workDir, mode, model } = options;
 
   const metaPrompt = DECOMPOSE_PROMPT(prompt, mode);
   const cmd = buildCommand(provider, metaPrompt, model);
